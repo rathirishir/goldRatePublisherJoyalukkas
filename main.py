@@ -1,5 +1,4 @@
 import os
-import time
 import requests
 from datetime import datetime
 
@@ -17,64 +16,54 @@ HEADERS = {
     "store": "default",
 }
 
-CHECK_INTERVAL_SECONDS = 4 * 60 * 60
-
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 
 def fetch_gold_rate():
     r = requests.get(GRAPHQL_URL, headers=HEADERS, timeout=30)
     r.raise_for_status()
-    data = r.json()
+    payload = r.json()
 
-    rate_block = data["data"]["getgoldrates"]
-    rows = rate_block.get("Data", [])
+    block = payload["data"]["getgoldrates"]
+    rows = block.get("Data", [])
     if not rows:
         raise ValueError("No gold rate rows returned")
 
     row = rows[0]
-    rate = row["GOLD_22KT_RATE"]
-    branch = row.get("BRANCH_NAME", "Unknown")
-    ts = rate_block.get("metal_rate_time", "")
-
-    return rate, branch, ts
+    return {
+        "rate": row["GOLD_22KT_RATE"],
+        "branch": row.get("BRANCH_NAME", "Unknown"),
+        "rate_time": block.get("metal_rate_time", ""),
+    }
 
 
 def send_telegram_message(message):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set")
-
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "disable_web_page_preview": True,
-    }
-    resp = requests.post(url, data=payload, timeout=30)
+    resp = requests.post(
+        url,
+        data={
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": message,
+            "disable_web_page_preview": True,
+        },
+        timeout=30,
+    )
     resp.raise_for_status()
     return resp.json()
 
 
-def run_once():
-    try:
-        rate, branch, ts = fetch_gold_rate()
-        msg = f"Joyalukkas India 22K gold rate: ₹{rate} per gram\nBranch: {branch}\nRate time: {ts}\nChecked at: {datetime.now():%Y-%m-%d %H:%M:%S}"
-        send_telegram_message(msg)
-        print(msg)
-    except Exception as e:
-        err = f"Joyalukkas gold alert failed: {e}"
-        print(err)
-        try:
-            send_telegram_message(err)
-        except Exception:
-            pass
-
-
 def main():
-    while True:
-        run_once()
-        time.sleep(CHECK_INTERVAL_SECONDS)
+    result = fetch_gold_rate()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    msg = (
+        f"Joyalukkas India 22K gold rate: ₹{result['rate']} per gram\n"
+        f"Branch: {result['branch']}\n"
+        f"Rate time: {result['rate_time']}\n"
+        f"Checked at: {now}"
+    )
+    send_telegram_message(msg)
+    print(msg)
 
 
 if __name__ == "__main__":
