@@ -47,7 +47,7 @@ def send_telegram_message(message):
             "text": message,
             "disable_web_page_preview": True,
         },
-        timeout=30,
+        timeout=300,
     )
     resp.raise_for_status()
     return resp.json()
@@ -57,7 +57,7 @@ def main():
     result = fetch_gold_rate()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     msg = (
-        f"Joyalukkas India 22K gold rate: ₹{result['rate']} per gram\n"
+        f"Joyalukkas India 22K gold rate: <b>₹{result['rate']}</b> per gram\n"
         f"Branch: {result['branch']}\n"
         f"Rate time: {result['rate_time']}\n"
         f"Checked at: {now}"
