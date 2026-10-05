@@ -13,6 +13,7 @@ HEADERS = {
 
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+EVENT_NAME = os.environ.get("GITHUB_EVENT_NAME", "")
 STATE_FILE = "last_rate.txt"
 
 def fetch_gold_rate():
@@ -27,7 +28,7 @@ def fetch_gold_rate():
 
     row = rows[0]
     return {
-        "rate": str(row["GOLD_22KT_RATE"]), # Ensure it's a string for comparison
+        "rate": str(row["GOLD_22KT_RATE"]),
         "branch": row.get("BRANCH_NAME", "Unknown"),
         "rate_time": block.get("metal_rate_time", ""),
     }
@@ -51,30 +52,27 @@ def main():
     result = fetch_gold_rate()
     current_rate = result['rate']
     
-    # 1. Read the last saved rate
     last_rate = None
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r") as f:
             last_rate = f.read().strip()
             
-    # 2. Compare. If they are the same, exit early!
-    if current_rate == last_rate:
-        print(f"Rate is unchanged (₹{current_rate}). No Telegram alert sent.")
+    # If triggered via Telegram or manual run, always send.
+    # If scheduled (cron), only send if the rate changed.
+    is_on_demand = EVENT_NAME in ["repository_dispatch", "workflow_dispatch"]
+
+    if not is_on_demand and current_rate == last_rate:
+        print(f"Scheduled check: rate unchanged (₹{current_rate}). No message sent.")
         return
 
-    # 3. If the rate changed (or it's the first time running), send the message
     ist_offset = timezone(timedelta(hours=5, minutes=30))
     now = datetime.now(ist_offset).strftime("%Y-%m-%d %H:%M:%S IST")
     
-    # Optional: show the change amount if last_rate exists
     trend = ""
-    if last_rate:
+    if last_rate and current_rate != last_rate:
         try:
             diff = float(current_rate) - float(last_rate)
-            if diff > 0:
-                trend = f" (🔺 Up ₹{abs(diff):.2f})"
-            elif diff < 0:
-                trend = f" (🔻 Down ₹{abs(diff):.2f})"
+            trend = f" (🔺 Up ₹{abs(diff):.2f})" if diff > 0 else f" (🔻 Down ₹{abs(diff):.2f})"
         except ValueError:
             pass
 
@@ -88,7 +86,6 @@ def main():
     send_telegram_message(msg)
     print("Message sent successfully:\n", msg)
     
-    # 4. Save the new rate to the file so GitHub Actions can commit it
     with open(STATE_FILE, "w") as f:
         f.write(current_rate)
 
