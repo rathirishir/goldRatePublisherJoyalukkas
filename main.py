@@ -1,6 +1,6 @@
 import os
 import requests
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 GRAPHQL_URL = "https://www.joyalukkas.in/graphql?query=query+getgoldrates%7Bgetgoldrates%7BId+Message+Status+metal_rate_time+Data%7BId+BRANCH_CODE+BRANCH_NAME+GOLD_14KT_RATE+GOLD_18KT_RATE+GOLD_22KT_RATE+GOLD_24KT_RATE+SILVER_RATE+SILVER_RATE100+SILVER_RATE999+PLATINUM_RATE+__typename%7D__typename%7D%7D&operationName=getgoldrates&variables=%7B%7D"
 
@@ -45,25 +45,35 @@ def send_telegram_message(message):
         data={
             "chat_id": TELEGRAM_CHAT_ID,
             "text": message,
+            "parse_mode": "HTML", # Added to render <b> tags properly
             "disable_web_page_preview": True,
         },
-        timeout=300,
+        timeout=30, # Reduced timeout for standard messaging
     )
     resp.raise_for_status()
     return resp.json()
 
 
 def main():
-    result = fetch_gold_rate()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    msg = (
-        f"Joyalukkas India 22K gold rate: <b>₹{result['rate']}</b> per gram\n"
-        f"Branch: {result['branch']}\n"
-        f"Rate time: {result['rate_time']}\n"
-        f"Checked at: {now}"
-    )
-    send_telegram_message(msg)
-    print(msg)
+    try:
+        result = fetch_gold_rate()
+        
+        # Force Indian Standard Time (UTC+5:30)
+        ist_offset = timezone(timedelta(hours=5, minutes=30))
+        now = datetime.now(ist_offset).strftime("%Y-%m-%d %H:%M:%S IST")
+        
+        msg = (
+            f"Joyalukkas India 22K gold rate: <b>₹{result['rate']}</b> per gram\n"
+            f"Branch: {result['branch']}\n"
+            f"Rate time: {result['rate_time']}\n"
+            f"Checked at: {now}"
+        )
+        send_telegram_message(msg)
+        print("Message sent successfully:\n", msg)
+        
+    except Exception as e:
+        print(f"Failed to fetch or send gold rates: {e}")
+        # Optional: You could also send a failure message to Telegram here
 
 
 if __name__ == "__main__":
