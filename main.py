@@ -8,17 +8,12 @@ HEADERS = {
     "User-Agent": "Mozilla/5.0",
     "Accept": "*/*",
     "Referer": "https://www.joyalukkas.in/",
-    "content-type": "application/json",
-    "x-channel-id": "WEB",
-    "x-platform": "WEB",
-    "x-device-type": "Desktop",
-    "x-app-version": "0.0.1",
-    "store": "default",
+    "content-type": "application/json"
 }
 
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
-
+STATE_FILE = "last_rate.txt"
 
 def fetch_gold_rate():
     r = requests.get(GRAPHQL_URL, headers=HEADERS, timeout=30)
@@ -32,11 +27,10 @@ def fetch_gold_rate():
 
     row = rows[0]
     return {
-        "rate": row["GOLD_22KT_RATE"],
+        "rate": str(row["GOLD_22KT_RATE"]), # Ensure it's a string for comparison
         "branch": row.get("BRANCH_NAME", "Unknown"),
         "rate_time": block.get("metal_rate_time", ""),
     }
-
 
 def send_telegram_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -45,36 +39,58 @@ def send_telegram_message(message):
         data={
             "chat_id": TELEGRAM_CHAT_ID,
             "text": message,
-            "parse_mode": "HTML", # Added to render <b> tags properly
+            "parse_mode": "HTML",
             "disable_web_page_preview": True,
         },
-        timeout=30, # Reduced timeout for standard messaging
+        timeout=30,
     )
     resp.raise_for_status()
     return resp.json()
 
-
 def main():
-    try:
-        result = fetch_gold_rate()
-        
-        # Force Indian Standard Time (UTC+5:30)
-        ist_offset = timezone(timedelta(hours=5, minutes=30))
-        now = datetime.now(ist_offset).strftime("%Y-%m-%d %H:%M:%S IST")
-        
-        msg = (
-            f"Joyalukkas India 22K gold rate: <b>₹{result['rate']}</b> per gram\n"
-            f"Branch: {result['branch']}\n"
-            f"Rate time: {result['rate_time']}\n"
-            f"Checked at: {now}"
-        )
-        send_telegram_message(msg)
-        print("Message sent successfully:\n", msg)
-        
-    except Exception as e:
-        print(f"Failed to fetch or send gold rates: {e}")
-        # Optional: You could also send a failure message to Telegram here
+    result = fetch_gold_rate()
+    current_rate = result['rate']
+    
+    # 1. Read the last saved rate
+    last_rate = None
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, "r") as f:
+            last_rate = f.read().strip()
+            
+    # 2. Compare. If they are the same, exit early!
+    if current_rate == last_rate:
+        print(f"Rate is unchanged (₹{current_rate}). No Telegram alert sent.")
+        return
 
+    # 3. If the rate changed (or it's the first time running), send the message
+    ist_offset = timezone(timedelta(hours=5, minutes=30))
+    now = datetime.now(ist_offset).strftime("%Y-%m-%d %H:%M:%S IST")
+    
+    # Optional: show the change amount if last_rate exists
+    trend = ""
+    if last_rate:
+        try:
+            diff = float(current_rate) - float(last_rate)
+            if diff > 0:
+                trend = f" (🔺 Up ₹{abs(diff):.2f})"
+            elif diff < 0:
+                trend = f" (🔻 Down ₹{abs(diff):.2f})"
+        except ValueError:
+            pass
+
+    msg = (
+        f"Joyalukkas India 22K gold rate: <b>₹{current_rate}</b>{trend}\n"
+        f"Branch: {result['branch']}\n"
+        f"Rate time: {result['rate_time']}\n"
+        f"Checked at: {now}"
+    )
+    
+    send_telegram_message(msg)
+    print("Message sent successfully:\n", msg)
+    
+    # 4. Save the new rate to the file so GitHub Actions can commit it
+    with open(STATE_FILE, "w") as f:
+        f.write(current_rate)
 
 if __name__ == "__main__":
     main()
